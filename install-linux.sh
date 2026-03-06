@@ -1,94 +1,64 @@
-#!/usr/bin/env bash
-#
-# Linux Server Setup — dotfiles + tools
-# Usage: ./install-linux.sh
-#
-set -euo pipefail
+#!/bin/bash
+echo "🐧 Starting Local Linux setup..."
 
-LOG_FILE="/tmp/server-setup-$(date +%Y%m%d-%H%M%S).log"
-log()  { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOG_FILE"; }
-warn() { log "WARN  $*"; }
-die()  { log "FATAL $*"; exit 1; }
+# 1. Install Dependencies
+echo "Installing packages..."
+sudo apt update
+sudo apt install -y stow tmux neovim zsh ripgrep fd-find starship fzf bat
 
-# ─── Pre-flight ──────────────────────────────────────────────────────────────
+# fd-find and batcat are named differently on Debian/Ubuntu
+mkdir -p ~/.local/bin
+[ ! -L ~/.local/bin/fd ] && ln -s "$(which fdfind)" ~/.local/bin/fd 2>/dev/null
+[ ! -L ~/.local/bin/bat ] && ln -s "$(which batcat)" ~/.local/bin/bat 2>/dev/null
 
-[[ "$EUID" -eq 0 ]] && die "Don't run as root. Run as your normal user."
-sudo -v 2>/dev/null  || die "Needs sudo access."
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for pkg in zsh tmux nvim; do
-    [[ -d "$SCRIPT_DIR/$pkg" ]] || die "Stow package '$pkg' not found. Run from the dotfiles repo root."
-done
-
-# ─── Apt packages (includes neovim and fzf) ─────────────────────────────────
-
-log "Installing apt packages..."
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
-    stow tmux zsh curl git ripgrep fd-find unzip build-essential \
-    neovim fzf
-
-# ─── Standalone tools ────────────────────────────────────────────────────────
-
-if ! command -v zoxide &>/dev/null; then
-    log "Installing zoxide..."
-    curl -fsSL --retry 3 https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+# Install tools not in default repos
+if ! command -v starship &> /dev/null; then
+    curl -sS https://starship.rs/install.sh | sh -s -- -y
+fi
+if ! command -v zoxide &> /dev/null; then
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+fi
+if ! command -v eza &> /dev/null; then
+    sudo mkdir -p /etc/apt/keyrings
+    wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+    sudo apt update
+    sudo apt install -y eza
 fi
 
-if ! command -v starship &>/dev/null; then
-    log "Installing starship..."
-    curl -fsSL --retry 3 https://starship.rs/install.sh | sh -s -- -y
+# zsh plugins (no brew tap available, clone manually)
+sudo mkdir -p /usr/share/zsh-autosuggestions /usr/share/zsh-syntax-highlighting
+if [ ! -d /usr/share/zsh-autosuggestions/.git ]; then
+    sudo git clone https://github.com/zsh-users/zsh-autosuggestions /usr/share/zsh-autosuggestions
+fi
+if [ ! -d /usr/share/zsh-syntax-highlighting/.git ]; then
+    sudo git clone https://github.com/zsh-users/zsh-syntax-highlighting /usr/share/zsh-syntax-highlighting
 fi
 
-# ─── Plugins ─────────────────────────────────────────────────────────────────
-
-log "Setting up plugins..."
+# 2. Universal Tools
 mkdir -p ~/.zsh
-
-declare -A plugins=(
-    [zsh-autosuggestions]="https://github.com/zsh-users/zsh-autosuggestions"
-    [zsh-syntax-highlighting]="https://github.com/zsh-users/zsh-syntax-highlighting"
-    [fzf-tab]="https://github.com/Aloxaf/fzf-tab"
-)
-for name in "${!plugins[@]}"; do
-    dest="$HOME/.zsh/$name"
-    if [[ -d "$dest" ]]; then
-        git -C "$dest" pull --quiet || warn "$name pull failed"
-    else
-        git clone --depth 1 "${plugins[$name]}" "$dest"
-    fi
-done
-
-tpm_dir="$HOME/.tmux/plugins/tpm"
-if [[ -d "$tpm_dir" ]]; then
-    git -C "$tpm_dir" pull --quiet || warn "TPM pull failed"
-else
-    mkdir -p "$HOME/.tmux/plugins"
-    git clone --depth 1 https://github.com/tmux-plugins/tpm "$tpm_dir"
+if [ ! -d ~/.zsh/fzf-tab ]; then
+    git clone https://github.com/Aloxaf/fzf-tab ~/.zsh/fzf-tab
+fi
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 fi
 
-# ─── Stow dotfiles ──────────────────────────────────────────────────────────
-
-log "Linking dotfiles..."
+# 3. Stow Configs
+echo "Symlinking dotfiles with Stow..."
 mkdir -p "$HOME/.config"
-
-for target in "$HOME/.zshrc" "$HOME/.tmux.conf" "$HOME/.config/nvim"; do
-    if [[ -e "$target" && ! -L "$target" ]]; then
-        backup="${target}.bak.$(date +%s)"
-        warn "Backing up $target → $backup"
-        mv "$target" "$backup"
+FILES_TO_BACKUP=("$HOME/.zshrc" "$HOME/.tmux.conf" "$HOME/.config/nvim")
+for file in "${FILES_TO_BACKUP[@]}"; do
+    if [ -e "$file" ] && [ ! -L "$file" ]; then
+        mv "$file" "${file}.backup"
     fi
 done
 
-cd "$SCRIPT_DIR"
-stow --restow -t "$HOME" zsh tmux nvim
+cd "$(dirname "${BASH_SOURCE[0]}")"
+stow -t ~/ zsh tmux nvim
 
-# ─── Default shell ───────────────────────────────────────────────────────────
-
-if [[ "$SHELL" != */zsh ]]; then
-    zsh_path="$(which zsh)"
-    grep -qxF "$zsh_path" /etc/shells || echo "$zsh_path" | sudo tee -a /etc/shells >/dev/null
-    sudo chsh -s "$zsh_path" "$USER"
+# 4. Change Shell
+if [[ "$SHELL" != *"/zsh" ]]; then
+    chsh -s "$(which zsh)"
 fi
-
-log "Done! Log out and back in (or run 'exec zsh')."
+echo "✅ Linux Setup complete! Restart your terminal."
