@@ -4,20 +4,34 @@ echo "🐧 Starting Local Linux setup..."
 # 1. Install Dependencies
 echo "Installing packages..."
 sudo apt update
-sudo apt install -y stow tmux neovim zsh ripgrep fd-find starship fzf bat
+sudo apt install -y stow tmux zsh ripgrep fd-find fzf bat
 
 # fd-find and batcat are named differently on Debian/Ubuntu
 mkdir -p ~/.local/bin
 [ ! -L ~/.local/bin/fd ] && ln -s "$(which fdfind)" ~/.local/bin/fd 2>/dev/null
 [ ! -L ~/.local/bin/bat ] && ln -s "$(which batcat)" ~/.local/bin/bat 2>/dev/null
 
-# Install tools not in default repos
+# Neovim — apt version is often too old for LazyVim, install from GitHub release
+if ! command -v nvim &> /dev/null || [[ "$(nvim --version | head -1 | grep -oP '\d+\.\d+')" < "0.9" ]]; then
+    echo "Installing Neovim (latest stable)..."
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+    sudo rm -rf /opt/nvim
+    sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+    sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+    rm nvim-linux-x86_64.tar.gz
+fi
+
+# Starship prompt
 if ! command -v starship &> /dev/null; then
     curl -sS https://starship.rs/install.sh | sh -s -- -y
 fi
+
+# Zoxide
 if ! command -v zoxide &> /dev/null; then
     curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
 fi
+
+# Eza
 if ! command -v eza &> /dev/null; then
     sudo mkdir -p /etc/apt/keyrings
     wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
@@ -26,7 +40,7 @@ if ! command -v eza &> /dev/null; then
     sudo apt install -y eza
 fi
 
-# zsh plugins (no brew tap available, clone manually)
+# Zsh plugins
 sudo mkdir -p /usr/share/zsh-autosuggestions /usr/share/zsh-syntax-highlighting
 if [ ! -d /usr/share/zsh-autosuggestions/.git ]; then
     sudo git clone https://github.com/zsh-users/zsh-autosuggestions /usr/share/zsh-autosuggestions
