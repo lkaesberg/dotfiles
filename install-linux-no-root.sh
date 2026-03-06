@@ -1,54 +1,124 @@
 #!/bin/bash
-echo "🔒 Starting Cluster setup (Rootless)..."
+echo "🐧 Starting Local Linux setup (no root)..."
 
-mkdir -p ~/.zsh ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 
-# 1. Download Static Binaries
-echo "Downloading tools to ~/.local/bin..."
+# 1. Install Dependencies (all to ~/.local)
+mkdir -p ~/.local/bin ~/.local/src
 
-# Neovim
-if ! command -v nvim &> /dev/null; then
-    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
-    rm -rf ~/.local/nvim
-    tar -xzf nvim-linux-x86_64.tar.gz
-    mv nvim-linux-x86_64 ~/.local/nvim
-    ln -sf ~/.local/nvim/bin/nvim ~/.local/bin/nvim
-    rm nvim-linux-x86_64.tar.gz
+# Neovim — build from source into ~/.local
+if ! command -v nvim &> /dev/null || [[ "$(nvim --version | head -1 | grep -oP '\d+\.\d+')" < "0.9" ]]; then
+    echo "Installing Neovim from source..."
+    # build deps should already be available; if not, this won't work without root
+    git clone https://github.com/neovim/neovim.git /tmp/neovim-build
+    cd /tmp/neovim-build
+    git checkout stable
+    make CMAKE_BUILD_TYPE=RelWithDebInfo CMAKE_INSTALL_PREFIX="$HOME/.local"
+    make install
+    cd -
+    rm -rf /tmp/neovim-build
 fi
 
-# GNU Stow (Compile from source)
-if ! command -v stow &> /dev/null; then
-    curl -LO https://ftp.gnu.org/gnu/stow/stow-2.3.1.tar.gz
-    tar -xzf stow-2.3.1.tar.gz
-    cd stow-2.3.1
-    ./configure --prefix="$HOME/.local"
-    make && make install
-    cd .. && rm -rf stow-2.3.1*
+# Starship
+if ! command -v starship &> /dev/null; then
+    curl -sS https://starship.rs/install.sh | sh -s -- -y -b ~/.local/bin
 fi
 
-# Ripgrep & fd & fzf
-curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz
-tar -xzf ripgrep-*.tar.gz && cp ripgrep-*/rg ~/.local/bin/ && rm -rf ripgrep-*
-
-curl -LO https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-unknown-linux-musl.tar.gz
-tar -xzf fd-*.tar.gz && cp fd-*/fd ~/.local/bin/ && rm -rf fd-*
-
-curl -LO https://github.com/junegunn/fzf/releases/latest/download/fzf-linux-amd64.tar.gz
-tar -xzf fzf-linux-amd64.tar.gz -C ~/.local/bin/ && rm fzf-linux-amd64.tar.gz
-
-# 2. Universal Tools
+# Zoxide
 if ! command -v zoxide &> /dev/null; then
     curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
 fi
-if ! command -v starship &> /dev/null; then
-    curl -sS https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"
+
+# fzf
+if ! command -v fzf &> /dev/null; then
+    git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
+    ~/.fzf/install --bin
+    ln -sf ~/.fzf/bin/fzf ~/.local/bin/fzf
 fi
 
-[ ! -d ~/.zsh/zsh-autosuggestions ] && git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions
-[ ! -d ~/.zsh/zsh-syntax-highlighting ] && git clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.zsh/zsh-syntax-highlighting
-[ ! -d ~/.zsh/fzf-tab ] && git clone https://github.com/Aloxaf/fzf-tab ~/.zsh/fzf-tab
-[ ! -d "$HOME/.tmux/plugins/tpm" ] && git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+# ripgrep
+if ! command -v rg &> /dev/null; then
+    echo "Installing ripgrep..."
+    RG_VERSION=$(curl -sL https://api.github.com/repos/BurntSushi/ripgrep/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+    curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    tar xzf "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    cp "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl/rg" ~/.local/bin/
+    rm -rf "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"*
+fi
+
+# fd
+if ! command -v fd &> /dev/null && ! command -v fdfind &> /dev/null; then
+    echo "Installing fd..."
+    FD_VERSION=$(curl -sL https://api.github.com/repos/sharkdp/fd/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
+    curl -LO "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    tar xzf "fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    cp "fd-v${FD_VERSION}-x86_64-unknown-linux-musl/fd" ~/.local/bin/
+    rm -rf "fd-v${FD_VERSION}-x86_64-unknown-linux-musl"*
+fi
+
+# bat
+if ! command -v bat &> /dev/null && ! command -v batcat &> /dev/null; then
+    echo "Installing bat..."
+    BAT_VERSION=$(curl -sL https://api.github.com/repos/sharkdp/bat/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
+    curl -LO "https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/bat-v${BAT_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    tar xzf "bat-v${BAT_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    cp "bat-v${BAT_VERSION}-x86_64-unknown-linux-musl/bat" ~/.local/bin/
+    rm -rf "bat-v${BAT_VERSION}-x86_64-unknown-linux-musl"*
+fi
+
+# eza
+if ! command -v eza &> /dev/null; then
+    echo "Installing eza..."
+    EZA_VERSION=$(curl -sL https://api.github.com/repos/eza-community/eza/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
+    curl -LO "https://github.com/eza-community/eza/releases/download/v${EZA_VERSION}/eza_x86_64-unknown-linux-musl.tar.gz"
+    tar xzf "eza_x86_64-unknown-linux-musl.tar.gz"
+    mv eza ~/.local/bin/
+    rm -f "eza_x86_64-unknown-linux-musl.tar.gz"
+fi
+
+# tmux (build from source if not available)
+if ! command -v tmux &> /dev/null; then
+    echo "Installing tmux from source..."
+    TMUX_VERSION=$(curl -sL https://api.github.com/repos/tmux/tmux/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+    curl -LO "https://github.com/tmux/tmux/releases/download/${TMUX_VERSION}/tmux-${TMUX_VERSION}.tar.gz"
+    tar xzf "tmux-${TMUX_VERSION}.tar.gz"
+    cd "tmux-${TMUX_VERSION}"
+    ./configure --prefix="$HOME/.local"
+    make && make install
+    cd -
+    rm -rf "tmux-${TMUX_VERSION}"*
+fi
+
+# stow (perl-based, builds easily without root)
+if ! command -v stow &> /dev/null; then
+    echo "Installing stow..."
+    STOW_VERSION="2.4.1"
+    curl -LO "https://ftp.gnu.org/gnu/stow/stow-${STOW_VERSION}.tar.gz"
+    tar xzf "stow-${STOW_VERSION}.tar.gz"
+    cd "stow-${STOW_VERSION}"
+    ./configure --prefix="$HOME/.local"
+    make && make install
+    cd -
+    rm -rf "stow-${STOW_VERSION}"*
+fi
+
+# Zsh plugins
+mkdir -p ~/.local/share/zsh-plugins
+if [ ! -d ~/.local/share/zsh-plugins/zsh-autosuggestions ]; then
+    git clone https://github.com/zsh-users/zsh-autosuggestions ~/.local/share/zsh-plugins/zsh-autosuggestions
+fi
+if [ ! -d ~/.local/share/zsh-plugins/zsh-syntax-highlighting ]; then
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.local/share/zsh-plugins/zsh-syntax-highlighting
+fi
+
+# 2. Universal Tools
+mkdir -p ~/.zsh
+if [ ! -d ~/.zsh/fzf-tab ]; then
+    git clone https://github.com/Aloxaf/fzf-tab ~/.zsh/fzf-tab
+fi
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+fi
 
 # 3. Stow Configs
 echo "Symlinking dotfiles with Stow..."
@@ -63,4 +133,16 @@ done
 cd "$(dirname "${BASH_SOURCE[0]}")"
 stow -t ~/ zsh tmux nvim
 
-echo "✅ Cluster Setup complete! Run 'zsh' to start."
+# 4. Change Shell (suggest manual if chsh needs root)
+if [[ "$SHELL" != *"/zsh" ]]; then
+    ZSH_PATH=$(which zsh 2>/dev/null)
+    if [ -n "$ZSH_PATH" ]; then
+        chsh -s "$ZSH_PATH" 2>/dev/null || echo "⚠️  Can't change shell without root. Add this to your .bashrc instead:"
+        echo "    exec $ZSH_PATH -l"
+    else
+        echo "⚠️  zsh not found. Ask your admin to install it, or add ~/.local/bin to PATH and install from source."
+    fi
+fi
+
+echo "✅ Linux Setup complete (no root)! Restart your terminal."
+echo "Make sure ~/.local/bin is in your PATH."
