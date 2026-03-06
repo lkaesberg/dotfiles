@@ -11,14 +11,12 @@ mkdir -p ~/.local/bin
 [ ! -L ~/.local/bin/fd ] && ln -s "$(which fdfind)" ~/.local/bin/fd 2>/dev/null
 [ ! -L ~/.local/bin/bat ] && ln -s "$(which batcat)" ~/.local/bin/bat 2>/dev/null
 
-# Neovim — apt version is often too old for LazyVim, install from GitHub release
+# Neovim — use AppImage to avoid GLIBC issues
 if ! command -v nvim &> /dev/null || [[ "$(nvim --version | head -1 | grep -oP '\d+\.\d+')" < "0.9" ]]; then
-    echo "Installing Neovim (latest stable)..."
-    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
-    sudo rm -rf /opt/nvim
-    sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
-    sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
-    rm nvim-linux-x86_64.tar.gz
+    echo "Installing Neovim (AppImage)..."
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
+    chmod u+x nvim.appimage
+    sudo mv nvim.appimage /usr/local/bin/nvim
 fi
 
 # Starship prompt
