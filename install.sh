@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Prevent running the whole script with sudo
+if [ "$EUID" -eq 0 ] && [ "$SUDO_USER" != "" ]; then
+    echo "ERROR: Do not run this script with 'sudo'."
+    echo "Run it as your normal user: ./install.sh --server"
+    echo "The script will automatically ask for your sudo password when needed."
+    exit 1
+fi
+
 # Define variables
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="mac"
@@ -25,26 +33,28 @@ export PATH="$HOME/.local/bin:$PATH"
 
 if [ "$MODE" == "server" ]; then
     sudo apt update
-    sudo apt install -y stow tmux zsh curl git ripgrep fd-find unzip build-essential fzf zoxide bat
+    # Removed zoxide from apt as it is missing from Ubuntu 20.04
+    sudo apt install -y stow tmux zsh curl git ripgrep fd-find unzip build-essential fzf bat
     
+    # Servers often have old Neovim versions. LazyVim requires >= 0.9.0.
     echo "Installing latest Neovim..."
-    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz
-    sudo rm -rf /opt/nvim
-    sudo tar -C /opt -xzf nvim-linux64.tar.gz
-    sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim
-    rm nvim-linux64.tar.gz
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+    sudo rm -rf /opt/nvim-linux-x86_64
+    sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+    sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+    rm nvim-linux-x86_64.tar.gz
 
 elif [ "$MODE" == "cluster" ]; then
     echo "Downloading static binaries to ~/.local/bin..."
 
     # Neovim
     if ! command -v nvim &> /dev/null; then
-        curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz
+        curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
         rm -rf ~/.local/nvim
-        tar -xzf nvim-linux64.tar.gz
-        mv nvim-linux64 ~/.local/nvim
+        tar -xzf nvim-linux-x86_64.tar.gz
+        mv nvim-linux-x86_64 ~/.local/nvim
         ln -sf ~/.local/nvim/bin/nvim ~/.local/bin/nvim
-        rm nvim-linux64.tar.gz
+        rm nvim-linux-x86_64.tar.gz
     fi
 
     # GNU Stow (Compile from source locally)
@@ -87,6 +97,12 @@ fi
 # ==========================================
 # 2. Universal Installations (Cross-Platform)
 # ==========================================
+
+# Install Zoxide universally
+if ! command -v zoxide &> /dev/null; then
+    echo "Installing Zoxide..."
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+fi
 
 # Install Zsh plugins manually if not on Mac
 if [ "$MODE" != "mac" ]; then
