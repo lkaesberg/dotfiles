@@ -1,3 +1,6 @@
+# Add local user binaries to PATH (Crucial for rootless cluster environments)
+export PATH="$HOME/.local/bin:$PATH"
+
 # Start Starship prompt
 eval "$(starship init zsh)"
 
