@@ -16,21 +16,19 @@ sudo apt install -y stow tmux zsh curl git ripgrep fd-find unzip build-essential
 
 # 2. Latest Binaries (Neovim & FZF)
 echo "Installing Neovim..."
-# Corrected Neovim URL for x86_64
-curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz
-sudo rm -rf /opt/nvim-linux64
-sudo tar -C /opt -xzf nvim-linux64.tar.gz
-sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim
-rm nvim-linux64.tar.gz
+# Using your verified link
+curl -LO https://github.com/neovim/neovim/releases/download/latest/nvim-linux-x86_64.tar.gz
+sudo rm -rf /opt/nvim-linux-x86_64
+sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+rm nvim-linux-x86_64.tar.gz
 
 echo "Installing FZF..."
-# FZF doesn't provide a 'latest' alias in the filename, so we use the git installer 
-# which is much more reliable for finding the right version.
-if [ ! -d ~/.fzf ]; then
-    git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-    ~/.fzf/install --bin
-    cp ~/.fzf/bin/fzf ~/.local/bin/
-fi
+# This method pulls the actual latest version string from GitHub API to avoid the 404 error
+FZF_VERSION=$(curl -s "https://api.github.com/repos/junegunn/fzf/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+curl -LO "https://github.com/junegunn/fzf/releases/download/${FZF_VERSION}/fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz"
+tar -xzf "fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz" -C ~/.local/bin/
+rm "fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz"
 
 # 3. Universal Tools
 if ! command -v zoxide &> /dev/null; then
@@ -57,7 +55,6 @@ for file in "${FILES_TO_BACKUP[@]}"; do
     fi
 done
 
-# Navigate to script directory and stow
 cd "$(dirname "${BASH_SOURCE[0]}")"
 stow -t ~/ zsh tmux nvim
 
@@ -66,4 +63,4 @@ if [[ "$SHELL" != *"/zsh" ]]; then
     sudo chsh -s $(which zsh) $USER
 fi
 
-echo "✅ Linux Setup complete! Please log out and log back in (or run 'zsh')."
+echo "✅ Linux Setup complete! Please log out and log back in."
