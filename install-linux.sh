@@ -1,66 +1,94 @@
-#!/bin/bash
-echo "🐧 Starting Linux Server setup..."
+#!/usr/bin/env bash
+#
+# Linux Server Setup — dotfiles + tools
+# Usage: ./install-linux.sh
+#
+set -euo pipefail
 
-# Security check: Ensure not running as root, but has sudo access
-if [ "$EUID" -eq 0 ]; then
-    echo "ERROR: Run this as your normal user, NOT with sudo or as root!"
-    exit 1
+LOG_FILE="/tmp/server-setup-$(date +%Y%m%d-%H%M%S).log"
+log()  { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOG_FILE"; }
+warn() { log "WARN  $*"; }
+die()  { log "FATAL $*"; exit 1; }
+
+# ─── Pre-flight ──────────────────────────────────────────────────────────────
+
+[[ "$EUID" -eq 0 ]] && die "Don't run as root. Run as your normal user."
+sudo -v 2>/dev/null  || die "Needs sudo access."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for pkg in zsh tmux nvim; do
+    [[ -d "$SCRIPT_DIR/$pkg" ]] || die "Stow package '$pkg' not found. Run from the dotfiles repo root."
+done
+
+# ─── Apt packages (includes neovim and fzf) ─────────────────────────────────
+
+log "Installing apt packages..."
+sudo apt-get update -qq
+sudo apt-get install -y -qq \
+    stow tmux zsh curl git ripgrep fd-find unzip build-essential \
+    neovim fzf
+
+# ─── Standalone tools ────────────────────────────────────────────────────────
+
+if ! command -v zoxide &>/dev/null; then
+    log "Installing zoxide..."
+    curl -fsSL --retry 3 https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
 fi
 
-mkdir -p ~/.zsh ~/.local/bin
-export PATH="$HOME/.local/bin:$PATH"
-
-# 1. Apt Dependencies
-sudo apt update
-sudo apt install -y stow tmux zsh curl git ripgrep fd-find unzip build-essential
-
-# 2. Latest Binaries (Neovim & FZF)
-echo "Installing Neovim..."
-# Using your verified link
-curl -LO https://github.com/neovim/neovim/releases/download/latest/nvim-linux-x86_64.tar.gz
-sudo rm -rf /opt/nvim-linux-x86_64
-sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
-sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
-rm nvim-linux-x86_64.tar.gz
-
-echo "Installing FZF..."
-# This method pulls the actual latest version string from GitHub API to avoid the 404 error
-FZF_VERSION=$(curl -s "https://api.github.com/repos/junegunn/fzf/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
-curl -LO "https://github.com/junegunn/fzf/releases/download/${FZF_VERSION}/fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz"
-tar -xzf "fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz" -C ~/.local/bin/
-rm "fzf-${FZF_VERSION/v/}-linux_amd64.tar.gz"
-
-# 3. Universal Tools
-if ! command -v zoxide &> /dev/null; then
-    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+if ! command -v starship &>/dev/null; then
+    log "Installing starship..."
+    curl -fsSL --retry 3 https://starship.rs/install.sh | sh -s -- -y
 fi
 
-if ! command -v starship &> /dev/null; then
-    curl -sS https://starship.rs/install.sh | sh -s -- -y
-fi
+# ─── Plugins ─────────────────────────────────────────────────────────────────
 
-# Plugin Clones
-[ ! -d ~/.zsh/zsh-autosuggestions ] && git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions
-[ ! -d ~/.zsh/zsh-syntax-highlighting ] && git clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.zsh/zsh-syntax-highlighting
-[ ! -d ~/.zsh/fzf-tab ] && git clone https://github.com/Aloxaf/fzf-tab ~/.zsh/fzf-tab
-[ ! -d "$HOME/.tmux/plugins/tpm" ] && git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+log "Setting up plugins..."
+mkdir -p ~/.zsh
 
-# 4. Stow Configs
-echo "Symlinking dotfiles with Stow..."
-mkdir -p "$HOME/.config"
-FILES_TO_BACKUP=("$HOME/.zshrc" "$HOME/.tmux.conf" "$HOME/.config/nvim")
-for file in "${FILES_TO_BACKUP[@]}"; do
-    if [ -e "$file" ] && [ ! -L "$file" ]; then
-        mv "$file" "${file}.backup"
+declare -A plugins=(
+    [zsh-autosuggestions]="https://github.com/zsh-users/zsh-autosuggestions"
+    [zsh-syntax-highlighting]="https://github.com/zsh-users/zsh-syntax-highlighting"
+    [fzf-tab]="https://github.com/Aloxaf/fzf-tab"
+)
+for name in "${!plugins[@]}"; do
+    dest="$HOME/.zsh/$name"
+    if [[ -d "$dest" ]]; then
+        git -C "$dest" pull --quiet || warn "$name pull failed"
+    else
+        git clone --depth 1 "${plugins[$name]}" "$dest"
     fi
 done
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
-stow -t ~/ zsh tmux nvim
-
-# Set ZSH as default shell
-if [[ "$SHELL" != *"/zsh" ]]; then
-    sudo chsh -s $(which zsh) $USER
+tpm_dir="$HOME/.tmux/plugins/tpm"
+if [[ -d "$tpm_dir" ]]; then
+    git -C "$tpm_dir" pull --quiet || warn "TPM pull failed"
+else
+    mkdir -p "$HOME/.tmux/plugins"
+    git clone --depth 1 https://github.com/tmux-plugins/tpm "$tpm_dir"
 fi
 
-echo "✅ Linux Setup complete! Please log out and log back in."
+# ─── Stow dotfiles ──────────────────────────────────────────────────────────
+
+log "Linking dotfiles..."
+mkdir -p "$HOME/.config"
+
+for target in "$HOME/.zshrc" "$HOME/.tmux.conf" "$HOME/.config/nvim"; do
+    if [[ -e "$target" && ! -L "$target" ]]; then
+        backup="${target}.bak.$(date +%s)"
+        warn "Backing up $target → $backup"
+        mv "$target" "$backup"
+    fi
+done
+
+cd "$SCRIPT_DIR"
+stow --restow -t "$HOME" zsh tmux nvim
+
+# ─── Default shell ───────────────────────────────────────────────────────────
+
+if [[ "$SHELL" != */zsh ]]; then
+    zsh_path="$(which zsh)"
+    grep -qxF "$zsh_path" /etc/shells || echo "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+    sudo chsh -s "$zsh_path" "$USER"
+fi
+
+log "Done! Log out and back in (or run 'exec zsh')."
